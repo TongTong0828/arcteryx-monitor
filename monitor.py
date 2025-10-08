@@ -12,6 +12,14 @@ from datetime import datetime
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 
+# 导入邮件通知模块
+try:
+    from email_notifier import send_change_notification
+    EMAIL_ENABLED = True
+except ImportError:
+    EMAIL_ENABLED = False
+    logging.warning("邮件通知模块未找到，将跳过邮件发送")
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -282,6 +290,17 @@ def main():
             logger.info(f"\n对比基准数据（{len(baseline_products)} 个商品 vs {len(current_products)} 个商品）...")
             changes = compare_products(baseline_products, current_products)
             print_changes(changes)
+            
+            # 发送邮件通知（如果有变化）
+            if EMAIL_ENABLED:
+                has_changes = any([
+                    changes.get('added'),
+                    changes.get('price_changes'),
+                    changes.get('removed')
+                ])
+                if has_changes:
+                    logger.info("\n发送邮件通知...")
+                    send_change_notification(changes)
             
             # 更新基准
             save_data(current_products)
