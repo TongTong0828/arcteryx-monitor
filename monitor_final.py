@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Arc'teryx Outlet 监控工具 - 最终版本
-使用 undetected-chromedriver 绕过反爬虫检测
+Arc'teryx Outlet 监控工具 - 最终版
 """
 
 import os
@@ -9,8 +8,11 @@ import json
 import time
 import logging
 from datetime import datetime
-import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # 配置日志
 logging.basicConfig(
@@ -31,16 +33,27 @@ def ensure_directories():
     os.makedirs(LOGS_DIR, exist_ok=True)
 
 def create_driver():
-    """创建 undetected Chrome WebDriver"""
+    """创建优化的 Chrome WebDriver"""
     logger.info("正在初始化 Chrome WebDriver...")
     
-    options = uc.ChromeOptions()
-    options.headless = True
-    options.add_argument('--window-size=1920,1080')
+    chrome_options = Options()
+    chrome_options.add_argument('--headless=new')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--disable-images')
+    chrome_options.add_argument('--blink-settings=imagesEnabled=false')
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--window-size=1280,720')
+    chrome_options.add_argument('--disable-software-rasterizer')
+    chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    
+    chrome_options.page_load_strategy = 'eager'
     
     try:
-        driver = uc.Chrome(options=options, version_main=141)  # 指定 Chrome 版本
-        driver.set_page_load_timeout(90)  # 增加超时时间
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.set_page_load_timeout(30)
+        driver.set_script_timeout(15)
         logger.info("✓ Chrome WebDriver 初始化成功")
         return driver
     except Exception as e:
@@ -53,10 +66,15 @@ def fetch_products(driver, url):
     
     try:
         driver.get(url)
+        logger.info("等待页面加载...")
+        
+        # 等待 body 元素
+        wait = WebDriverWait(driver, 20)
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
         logger.info("✓ 页面已加载，等待 JavaScript 渲染...")
         
         # 等待 JavaScript 渲染
-        time.sleep(20)
+        time.sleep(15)
         
         # 滚动页面加载更多产品
         for i in range(3):
@@ -64,9 +82,13 @@ def fetch_products(driver, url):
             time.sleep(3)
             logger.info(f"滚动 {i+1}/3...")
         
-        # 查找产品链接 (Arc'teryx Outlet 使用 /shop/mens/ 而不是 /products/)
-        product_links = driver.find_elements(By.CSS_SELECTOR, '.qa--product-tile__link, a[href*="/shop/mens/"]')
+        # 查找产品链接
+        product_links = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/products/"]')
         logger.info(f"找到 {len(product_links)} 个产品链接")
+        
+        if not product_links:
+            logger.warning("未找到产品链接")
+            return []
         
         # 提取产品信息
         products = []
@@ -74,71 +96,73 @@ def fetch_products(driver, url):
         
         for idx, link in enumerate(product_links):
             try:
-                href = link.get_attribute('href')
+                url = link.get_attribute('href')
                 
-                if not href or '/shop/mens/' not in href:
+                if not url:
+                    logger.debug(f"链接 {idx} 没有 href 属性")
+                    continue
+                
+                # 只处理产品页面链接
+                if '/products/' not in url:
                     continue
                 
                 # 去重
-                if href in seen_urls:
+                if url in seen_urls:
                     continue
-                seen_urls.add(href)
+                seen_urls.add(url)
                 
-                # 提取产品 ID (从 URL 末尾)
-                product_id = href.rstrip('/').split('/')[-1] if href else f'product_{idx}'
+                logger.info(f"处理产品链接: {url}")
+                
+                # 提取产品 ID
+                product_id = url.rstrip('/').split('/')[-1] if url else None
                 
                 # 尝试获取产品名称
                 name = None
                 try:
-                    # 查找产品名称元素
-                    parent = link.find_element(By.XPATH, '..')
-                    name_elems = parent.find_elements(By.CSS_SELECTOR, '.product-tile-name, [class*="tile-name"]')
-                    if name_elems:
-                        name = name_elems[0].text.strip()
-                    
+                    # 尝试从链接文本获取
+                    name = link.text.strip()
                     if not name:
-                        # 备用：从链接文本获取
-                        name = link.text.strip()
-                    
-                    if not name:
-                        # 再备用：从图片 alt 获取
+                        # 尝试从 img alt 获取
                         imgs = link.find_elements(By.TAG_NAME, 'img')
                         if imgs:
                             name = imgs[0].get_attribute('alt')
+                    if not name:
+                        # 尝试从 title 属性获取
+                        name = link.get_attribute('title')
                 except Exception as e:
-                    logger.debug(f"获取产品名称失败: {e}")
+                    logger.debug(f"获取名称失败: {e}")
                 
                 # 尝试获取价格
                 price = None
                 try:
-                    # 向上查找父元素中的价格
+                    # 查找父元素中的价格
                     parent = link
-                    for _ in range(5):
+                    for _ in range(5):  # 向上查找5层
                         try:
                             parent = parent.find_element(By.XPATH, '..')
-                            price_elems = parent.find_elements(By.CSS_SELECTOR, '.qa--product-tile__prices, [class*="price"]')
-                            if price_elems:
-                                price_text = price_elems[0].text.strip()
-                                # 清理价格文本（可能包含多行）
-                                price = ' '.join(price_text.split())
-                                if price:
+                            price_elements = parent.find_elements(By.CSS_SELECTOR, '[class*="price"], [class*="Price"], [data-testid*="price"]')
+                            if price_elements:
+                                price_text = price_elements[0].text.strip()
+                                if price_text and ('$' in price_text or '¥' in price_text or price_text.replace('.', '').isdigit()):
+                                    price = price_text
                                     break
                         except:
                             break
                 except Exception as e:
                     logger.debug(f"获取价格失败: {e}")
                 
-                # 保存产品信息
-                product = {
-                    'id': product_id,
-                    'name': name or product_id,
-                    'price': price,
-                    'link': href,
-                    'timestamp': datetime.now().isoformat()
-                }
-                products.append(product)
-                logger.debug(f"✓ 提取产品: {product['name'][:50]}")
-                
+                # 即使信息不完整也保存
+                if product_id or url:
+                    product = {
+                        'id': product_id or url.split('?')[0],  # 使用完整URL作为后备ID
+                        'name': name or product_id or '未知商品',
+                        'price': price,
+                        'link': url,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    products.append(product)
+                    logger.info(f"✓ 提取商品: {product['name'][:50]}")
+            
             except Exception as e:
                 logger.warning(f"处理链接 {idx} 失败: {e}")
                 continue
@@ -148,8 +172,6 @@ def fetch_products(driver, url):
         
     except Exception as e:
         logger.error(f"获取商品失败: {e}")
-        import traceback
-        traceback.print_exc()
         return []
 
 def save_data(products, filename=BASELINE_FILE):
@@ -210,36 +232,28 @@ def compare_products(old_products, new_products):
 
 def print_changes(changes):
     """打印变化"""
-    has_changes = False
-    
     if changes['added']:
-        has_changes = True
         logger.info(f"\n🆕 新增商品 ({len(changes['added'])}个):")
         for p in changes['added'][:10]:
-            logger.info(f"  - {p.get('name', 'N/A')}")
-            logger.info(f"    价格: {p.get('price', 'N/A')}")
-            logger.info(f"    链接: {p.get('link', 'N/A')}")
-        if len(changes['added']) > 10:
-            logger.info(f"  ... 还有 {len(changes['added']) - 10} 个")
+            logger.info(f"  - {p.get('name', 'N/A')} ({p.get('price', 'N/A')})")
+            if len(changes['added']) > 10:
+                logger.info(f"  ... 还有 {len(changes['added']) - 10} 个")
     
     if changes['removed']:
-        has_changes = True
         logger.info(f"\n📦 下架商品 ({len(changes['removed'])}个):")
         for p in changes['removed'][:10]:
             logger.info(f"  - {p.get('name', 'N/A')}")
-        if len(changes['removed']) > 10:
-            logger.info(f"  ... 还有 {len(changes['removed']) - 10} 个")
+            if len(changes['removed']) > 10:
+                logger.info(f"  ... 还有 {len(changes['removed']) - 10} 个")
     
     if changes['price_changes']:
-        has_changes = True
         logger.info(f"\n💰 价格变化 ({len(changes['price_changes'])}个):")
         for c in changes['price_changes'][:10]:
-            logger.info(f"  - {c['product'].get('name', 'N/A')}")
-            logger.info(f"    {c['old_price']} → {c['new_price']}")
-        if len(changes['price_changes']) > 10:
-            logger.info(f"  ... 还有 {len(changes['price_changes']) - 10} 个")
+            logger.info(f"  - {c['product'].get('name', 'N/A')}: {c['old_price']} → {c['new_price']}")
+            if len(changes['price_changes']) > 10:
+                logger.info(f"  ... 还有 {len(changes['price_changes']) - 10} 个")
     
-    if not has_changes:
+    if not any([changes['added'], changes['removed'], changes['price_changes']]):
         logger.info("\n✓ 无变化")
 
 def main():
@@ -267,19 +281,12 @@ def main():
         
         if not baseline_products:
             # 首次运行，创建基准
-            logger.info(f"\n首次运行，创建基准数据...")
-            logger.info(f"基准商品数量: {len(current_products)}")
+            logger.info("首次运行，创建基准数据...")
             save_data(current_products)
-            
-            # 显示前5个商品
-            logger.info("\n前 5 个商品:")
-            for i, p in enumerate(current_products[:5], 1):
-                logger.info(f"\n{i}. {p.get('name')}")
-                logger.info(f"   价格: {p.get('price', 'N/A')}")
-                logger.info(f"   ID: {p.get('id')}")
+            logger.info(f"基准数据已创建，包含 {len(current_products)} 个商品")
         else:
             # 比较变化
-            logger.info(f"\n对比基准数据（{len(baseline_products)} 个商品 vs {len(current_products)} 个商品）...")
+            logger.info(f"对比基准数据（{len(baseline_products)} 个商品）...")
             changes = compare_products(baseline_products, current_products)
             print_changes(changes)
             
@@ -302,3 +309,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

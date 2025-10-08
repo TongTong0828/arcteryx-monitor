@@ -4,6 +4,6 @@
 # 激活虚拟环境
 source venv/bin/activate
 
-# 运行 Selenium 版本的监控脚本（支持 JavaScript 渲染的网站）
-python3 monitor_selenium.py "$@"
+# 运行监控脚本（使用 undetected-chromedriver）
+python3 monitor.py "$@"
 
