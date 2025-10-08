@@ -1,0 +1,63 @@
+# 数据文件
+data/
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志文件
+logs/
+*.log
+
+# macOS
+.DS_Store
+
+# 报告文件
+*.txt
+!requirements.txt
+
+# 环境变量（不要提交敏感信息！）
+.env
+
+# AWS 密钥（不要提交！）
+*.pem
+*.key
+
+# 临时文件
+*.tmp
+*.bak
+.cache/
+
