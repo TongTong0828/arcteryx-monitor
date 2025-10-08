@@ -96,12 +96,12 @@ chmod 600 email_config.sh
 ```bash
 # 在本地 Mac 上
 cd /Users/at/Desktop/ARC
-scp -i /Users/at/Desktop/tongtong20182.pem email_notifier.py ec2-user@56.155.31.9:~/arcteryx-monitor/
+scp -i /path/to/your-key.pem email_notifier.py ec2-user@YOUR_EC2_IP:~/arcteryx-monitor/
 ```
 
 ### 2. 在 EC2 上测试
 ```bash
-ssh -i /Users/at/Desktop/tongtong20182.pem ec2-user@56.155.31.9
+ssh -i /path/to/your-key.pem ec2-user@YOUR_EC2_IP
 
 cd arcteryx-monitor
 source email_config.sh  # 加载配置
